@@ -10,7 +10,10 @@ import cz.cuni.mff.kubatpe1.java.chessnet.GameSynchronizer;
 import cz.cuni.mff.kubatpe1.java.chessnet.Handler;
 import cz.cuni.mff.kubatpe1.java.chessnet.game.EmptyGame;
 import cz.cuni.mff.kubatpe1.java.chessnet.game.Game;
+import cz.cuni.mff.kubatpe1.java.chessnet.game.GameLoadException;
+import cz.cuni.mff.kubatpe1.java.chessnet.game.GameLoader;
 import cz.cuni.mff.kubatpe1.java.chessnet.game.PieceColor;
+import cz.cuni.mff.kubatpe1.java.chessnet.recording.BufferedRecorder;
 import cz.cuni.mff.kubatpe1.java.chessnet.recording.ListLogger;
 import cz.cuni.mff.kubatpe1.java.connection.Client;
 import cz.cuni.mff.kubatpe1.java.connection.Connection;
@@ -23,10 +26,14 @@ import java.awt.Color;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.WindowAdapter;
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.logging.Level;
@@ -34,7 +41,9 @@ import java.util.logging.Logger;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultListModel;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -65,7 +74,8 @@ public class MainWindow {
     private JFrame window;
     private JPanel chessboardPanel;
     private Handler messageHandler;
-    private JLabel status;
+    private JLabel connectionStatus;
+    private JLabel gameStatus;
     private JLabel statusHeader;
     
     private ResourceLoader res;
@@ -74,21 +84,29 @@ public class MainWindow {
     private JMenuItem menuDisconnect;
     
     private JMenuItem menuStart;
+    private JMenuItem menuSave;
+    private JMenuItem menuLoad;
     private JMenuItem menuQuit;
     
     private Game currentGame;
     private GameSynchronizer currentSynchronizer;
     
+    private Game tmpGame;
+    
     private DefaultListModel logData;
     private JList log;
-    
+
     private Thread serverWaitThread;
     
     private WindowState currentState;
     
-    private PieceNetworkSelector currentSelector;
+    private PieceMemorySelector currentSelector;
+    
+    private BufferedRecorder saveGameRecorder;
     
     private final int portNo = 6666;
+    
+    private final String version = "1.0";
 
     public MainWindow() {
         connection = null;
@@ -96,7 +114,9 @@ public class MainWindow {
         
         res = new ResourceLoader();
         
-        currentSelector = new PieceNetworkSelector();
+        currentSelector = new PieceMemorySelector();
+        
+        saveGameRecorder = new BufferedRecorder();
 
     }
     
@@ -105,27 +125,45 @@ public class MainWindow {
         statusHeader.setText(newState.getMessage());
         if (currentState == WindowState.PLAYING_OFFLINE || currentState == WindowState.PLAYING_ONLINE) {
             menuStart.setEnabled(false);
+            menuSave.setEnabled(true);
+            menuLoad.setEnabled(false);
             menuQuit.setEnabled(true);
         }
         else {
             menuStart.setEnabled(true);
+            menuSave.setEnabled(false);
+            menuLoad.setEnabled(true);
             menuQuit.setEnabled(false);
         }
         if (currentState == WindowState.WAITING_FOR_CONNECTION) {
             menuStart.setEnabled(false);
+            menuSave.setEnabled(false);
+            menuLoad.setEnabled(false);
+            menuQuit.setEnabled(false);
+            menuConnect.setEnabled(false);
+            
+            menuDisconnect.setEnabled(true);
+        }
+        if (currentState == WindowState.WAITING_FOR_GAME) {
+            menuStart.setEnabled(false);
+            menuSave.setEnabled(false);
+            menuLoad.setEnabled(false);
             menuQuit.setEnabled(false);
             menuConnect.setEnabled(false);
             menuDisconnect.setEnabled(true);
         }
+        refreshStatus();
     }
     
     private void quitCurrentGame() {
         Object[] options = { "Yes", "No" };
-        int res = JOptionPane.showOptionDialog(null, "Do you really want to quit current game?", "Quit game", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        int result = JOptionPane.showOptionDialog(null, "Do you really want to quit current game?", "Quit game", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
 
-        if (res != 0) {
+        if (result != 0) {
             return;
         }
+        
+        promptSave();
         
         if (currentState == WindowState.PLAYING_ONLINE) {
             connection.send("QGAME");
@@ -143,6 +181,10 @@ public class MainWindow {
     }
     
     public void forceQuitGame() {
+        if (currentState == WindowState.PLAYING_OFFLINE || currentState == WindowState.PLAYING_ONLINE) {
+            promptSave();
+        }
+        
         chessboard.reset(new EmptyGame());
         logData.clear();
         if (connectionType != null) {
@@ -168,6 +210,7 @@ public class MainWindow {
                 return;
             }
         }
+        
         
         forceQuitGame();
         
@@ -298,40 +341,75 @@ public class MainWindow {
     public void refreshStatus() {
         String connectionStatus;
         if (connectionType == null) {
-            connectionStatus = "DISCONNECTED";
+            connectionStatus = "OFFLINE";
         }
         else {
             connectionStatus = connectionType.toString();
         }
-        status.setText("<html>Connection status: " + connectionStatus  + "<br>Game state: ZZZ<br>Player: YYY<br>");
+        this.connectionStatus.setText(connectionStatus);
     }  
     
-    public void startGame() {
-        
-        
+    
+    public void startGame(File inputFile) {
+               
         if (connectionType == ConnectionType.CLIENT) {
             JOptionPane.showMessageDialog(window, "Only server can start the game!", "ERROR", JOptionPane.ERROR_MESSAGE);
             return;
         }
         else if (connectionType == ConnectionType.SERVER) {
-            if (currentState == WindowState.PLAYING_ONLINE) {
-                
+            logData.clear();
+            if (inputFile != null) {
+                GameLoader gl = new GameLoader(true);
+                try {
+                    saveGameRecorder.clearBuffer();
+                    tmpGame = gl.loadFromFile(inputFile, new ListLogger(log, logData), saveGameRecorder);
+                }
+                catch (GameLoadException e) {
+                    JOptionPane.showMessageDialog(window, "Cannot load from file!", "ERROR", JOptionPane.ERROR_MESSAGE);
+                    logData.clear();
+                    return;
+                }
+                String buffer = gl.getBufferContent();
+                changeState(WindowState.WAITING_FOR_GAME);
+                connection.send("START" + "|" + buffer);
             }
-            changeState(WindowState.WAITING_FOR_GAME);
-            connection.send("START");
+            else {
+                changeState(WindowState.WAITING_FOR_GAME);
+                connection.send("START");
+            }
+
         }
         else {
-            changeState(WindowState.PLAYING_OFFLINE);
             logData.clear();
-            currentGame = new Game(new PieceSelectorWindow(res, window), new PieceSelectorWindow(res, window));
-            currentGame.setLogger(new ListLogger(log, logData));
+            if (inputFile != null) {
+                GameLoader gl = new GameLoader(false);
+                try {
+                    saveGameRecorder.clearBuffer();
+                    currentGame = gl.loadFromFile(inputFile, new ListLogger(log, logData), saveGameRecorder);
+                }
+                catch (GameLoadException e) {
+                    JOptionPane.showMessageDialog(window, "Cannot load from file!", "ERROR", JOptionPane.ERROR_MESSAGE);
+                    logData.clear();
+                    return;
+                }
+            }
+            else {
+                currentGame = new Game(new PieceSelectorWindow(res, window), new PieceSelectorWindow(res, window));
+                currentGame.setLogger(new ListLogger(log, logData));
+                currentGame.setRecorder(saveGameRecorder);
+                saveGameRecorder.clearBuffer();
+            }
+            changeState(WindowState.PLAYING_OFFLINE);
+            
             currentSynchronizer = null;
+            chessboard.setReversed(false);
+            
             chessboard.reset(currentGame);
         }
         
     }
     
-    public void invokeStart() {
+    public void invokeStart(String buffer) {
         if (connectionType != ConnectionType.CLIENT) {
             JOptionPane.showMessageDialog(window, "Game cannot be started!", "ERROR", JOptionPane.ERROR_MESSAGE);
             return;
@@ -345,9 +423,27 @@ public class MainWindow {
         }
         changeState(WindowState.PLAYING_ONLINE);
         logData.clear();
-        currentGame = new Game(currentSelector, new PieceSelectorWindow(res, window));
-        currentGame.setLogger(new ListLogger(log, logData));
+        if (buffer != null) {
+            try {
+                GameLoader gl = new GameLoader(false);
+                saveGameRecorder.clearBuffer();
+                currentGame = gl.loadFromBuffer(buffer, new ListLogger(log, logData), saveGameRecorder);
+            }
+            catch (GameLoadException e) {
+                JOptionPane.showMessageDialog(window, "Game cannot be loaded!", "ERROR", JOptionPane.ERROR_MESSAGE);
+                connection.send("STDENY");
+                return;
+            }
+        }
+        else {
+            currentGame = new Game(currentSelector, new PieceSelectorWindow(res, window));
+            currentGame.setLogger(new ListLogger(log, logData));
+            currentGame.setRecorder(saveGameRecorder);
+            saveGameRecorder.clearBuffer();
+        }
+
         currentSynchronizer = new GameSynchronizer(currentGame, PieceColor.BLACK, connection);
+        chessboard.setReversed(true);
         chessboard.reset(currentSynchronizer);
         currentSynchronizer.setChessboard(chessboard);
         messageHandler.setSynchronizer(currentSynchronizer);
@@ -356,17 +452,65 @@ public class MainWindow {
     
     public void confirmStart() {
         changeState(WindowState.PLAYING_ONLINE);
-        logData.clear();
-        currentGame = new Game(new PieceSelectorWindow(res, window), currentSelector);
-        currentGame.setLogger(new ListLogger(log, logData));
+        
+        if (tmpGame != null) {
+            currentGame = tmpGame;
+            tmpGame = null;
+        }
+        else {
+            currentGame = new Game(new PieceSelectorWindow(res, window), currentSelector);
+            currentGame.setLogger(new ListLogger(log, logData));
+            currentGame.setRecorder(saveGameRecorder);
+            saveGameRecorder.clearBuffer();
+            logData.clear();
+        }
+
         currentSynchronizer = new GameSynchronizer(currentGame, PieceColor.WHITE, connection);
+        chessboard.setReversed(false);
         chessboard.reset(currentSynchronizer);
         currentSynchronizer.setChessboard(chessboard);
         messageHandler.setSynchronizer(currentSynchronizer);
     }
     
     public void denyStart() {
+        if (tmpGame != null) {
+            tmpGame = null;
+        }
+        logData.clear();
         changeState(WindowState.CONNECTED);
+    }
+    
+    private void saveGame() {
+        JFileChooser fileChooser = new JFileChooser();
+        int result = fileChooser.showSaveDialog(window);
+        File selectedFile;
+        if (result == JFileChooser.APPROVE_OPTION) {
+            selectedFile = fileChooser.getSelectedFile();
+        }
+        else {
+            return;
+        }
+        try {
+            saveGameRecorder.saveBuffer(selectedFile);
+        }
+        catch (FileNotFoundException e) {
+            JOptionPane.showMessageDialog(window, "Error while saving the game!", "ERROR", JOptionPane.ERROR_MESSAGE);
+        }
+        
+    }
+    
+    private void promptSave() {
+        Object[] options = { "Yes", "No" };
+        int result = JOptionPane.showOptionDialog(null, "Do you want to save the game?", "Save game", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        
+        if (result == 0) {
+            saveGame();
+        }
+    }
+    
+    public void otherSideQuit() {
+        JOptionPane.showMessageDialog(window, "Other side quit the game!", "ERROR", JOptionPane.ERROR_MESSAGE);
+        forceQuitGame();
     }
     
     
@@ -391,6 +535,27 @@ public class MainWindow {
         menuDisconnect.setEnabled(false);
     }
     
+    private void showAbout() {
+        JPanel aboutPanel = new JPanel(new GridLayout(0,1));
+        
+        JLabel name = new JLabel("<html><b><font size=\"7\">ChessNet</font></b></html>");
+        
+        name.setForeground(Color.DARK_GRAY);
+        
+        JLabel ver = new JLabel("<html><font size=\"4\">Version: " + version + "</font></html>");
+        
+        JLabel rest = new JLabel("<html>Petr Kubát<br>2013</html>");
+        
+        aboutPanel.add(name);
+        aboutPanel.add(ver);
+        aboutPanel.add(rest);
+        
+        //aboutPanel.validate();
+        
+        JOptionPane.showMessageDialog(window, aboutPanel, "About ChessNet", JOptionPane.PLAIN_MESSAGE, new ImageIcon(res.pawnWhite));
+        
+    }
+    
     
     public void show() throws Exception {
         UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
@@ -412,10 +577,10 @@ public class MainWindow {
         
         
 
-        
+        gameStatus = new JLabel("");
         
         // --- Main screen (chessboard) --- 
-        chessboard = new Chessboard(res, new EmptyGame());
+        chessboard = new Chessboard(res, new EmptyGame(), gameStatus);
         //chessboard.disableBoard();
         chessboardPanel = new JPanel(new GridBagLayout());
         chessboardPanel.add(chessboard);
@@ -434,15 +599,21 @@ public class MainWindow {
         JScrollPane logArea = new JScrollPane(log);
         
         // --- Status panel ---
-        statusHeader = new JLabel("STATUS PANEL");
-        status = new JLabel("<html>Connection status: XXX<br>Game state: ZZZ<br>Player: YYY<br>");
+        statusHeader = new JLabel("");
+        connectionStatus = new JLabel("");
         
         Border paddingBorder = BorderFactory.createEmptyBorder(10,10,10,10);
         Border border = BorderFactory.createLineBorder(Color.BLACK);
-        status.setBorder(paddingBorder);
-        status.setBackground(Color.DARK_GRAY);
-        status.setForeground(Color.WHITE);
-        status.setOpaque(true);
+        
+        connectionStatus.setBorder(paddingBorder);
+        connectionStatus.setBackground(Color.DARK_GRAY);
+        connectionStatus.setForeground(Color.YELLOW);
+        connectionStatus.setOpaque(true);
+        
+        gameStatus.setBorder(paddingBorder);
+        gameStatus.setBackground(Color.DARK_GRAY);
+        gameStatus.setForeground(Color.WHITE);
+        gameStatus.setOpaque(true);
         
         statusHeader.setBorder(paddingBorder);
         statusHeader.setBackground(Color.DARK_GRAY);
@@ -452,7 +623,9 @@ public class MainWindow {
         JPanel statusPanel = new JPanel(new BorderLayout());
         
         statusPanel.add(statusHeader, BorderLayout.NORTH);
-        statusPanel.add(status);
+        statusPanel.add(connectionStatus, BorderLayout.CENTER);
+        statusPanel.add(gameStatus, BorderLayout.SOUTH);
+
         
         infoPanel.add(statusPanel, BorderLayout.NORTH);
         infoPanel.add(logArea);
@@ -501,8 +674,8 @@ public class MainWindow {
         JMenuBar menu = new JMenuBar(); 
         JMenu menuConnection = new JMenu("Connection");
         JMenu menuGame = new JMenu("Game");
-        JMenu menuRecord = new JMenu("Record");
-        JMenu menuTools = new JMenu("Tools");
+        //JMenu menuRecord = new JMenu("Record");
+        //JMenu menuTools = new JMenu("Tools");
         JMenu menuSize = new JMenu("Size");
         JMenu menuHelp = new JMenu("Help");
         
@@ -517,14 +690,28 @@ public class MainWindow {
         menuConnection.add(menuConnect);
         menuConnection.add(menuDisconnect);
         
-        menuStart = new JMenuItem("Start game");
+        menuStart = new JMenuItem("New game");
+        menuSave = new JMenuItem("Save game");
+        menuLoad = new JMenuItem("Load game");
         menuQuit = new JMenuItem("Quit game");
         
         menuStart.addActionListener(new StartListener());
+        menuSave.addActionListener(new SaveListener());
+        menuLoad.addActionListener(new LoadListener());
         menuQuit.addActionListener(new QuitListener());
         
         menuGame.add(menuStart);
+        menuGame.add(menuSave);
+        menuGame.add(menuLoad);
         menuGame.add(menuQuit);
+        
+        JMenuItem menuGuide = new JMenuItem("User guide");
+        JMenuItem menuAbout = new JMenuItem("About");
+        
+        menuAbout.addActionListener(new AboutListener());
+        
+        menuHelp.add(menuGuide);
+        menuHelp.add(menuAbout);
         
         JRadioButtonMenuItem menuSizeSmall = new JRadioButtonMenuItem("Small");
         JRadioButtonMenuItem menuSizeMedium = new JRadioButtonMenuItem("Medium");
@@ -547,8 +734,8 @@ public class MainWindow {
     
         menu.add(menuConnection);
         menu.add(menuGame);
-        menu.add(menuRecord);
-        menu.add(menuTools);
+        //menu.add(menuRecord);
+        //menu.add(menuTools);
         menu.add(menuSize);
         menu.add(menuHelp);
         
@@ -573,7 +760,7 @@ public class MainWindow {
         }
         else return false;
     }
-    
+
     public class SendListener implements ActionListener {
 
         @Override    
@@ -618,14 +805,44 @@ public class MainWindow {
     public class StartListener implements ActionListener {
         @Override    
         public void actionPerformed(ActionEvent e) {
-            startGame();
+            startGame(null);
         }
     }
+    
+    public class LoadListener implements ActionListener {
+        @Override    
+        public void actionPerformed(ActionEvent e) {
+            JFileChooser fileChooser = new JFileChooser();
+            int result = fileChooser.showOpenDialog(window);
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File selectedFile = fileChooser.getSelectedFile();
+                startGame(selectedFile);
+            }
+            
+
+            
+        }
+    }
+    
+    public class SaveListener implements ActionListener {
+        @Override    
+        public void actionPerformed(ActionEvent e) {
+            saveGame();
+        }
+    }
+    
     
     public class QuitListener implements ActionListener {
         @Override    
         public void actionPerformed(ActionEvent e) {
             quitCurrentGame();
+        }
+    }
+    
+    public class AboutListener implements ActionListener {
+        @Override    
+        public void actionPerformed(ActionEvent e) {
+            showAbout();
         }
     }
     

@@ -10,6 +10,7 @@ import cz.cuni.mff.kubatpe1.java.chessnet.game.GamePiece;
 import cz.cuni.mff.kubatpe1.java.chessnet.game.InvalidMoveException;
 import cz.cuni.mff.kubatpe1.java.chessnet.game.GameField;
 import cz.cuni.mff.kubatpe1.java.chessnet.*;
+import cz.cuni.mff.kubatpe1.java.chessnet.game.EmptyGame;
 import cz.cuni.mff.kubatpe1.java.chessnet.game.IChessGame;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -17,10 +18,12 @@ import java.awt.GridLayout;
 import java.awt.LayoutManager;
 import java.util.List;
 import javax.swing.BorderFactory;
+import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.border.BevelBorder;
 import javax.swing.border.Border;
+
 
 /**
  *
@@ -42,11 +45,15 @@ public class Chessboard extends JPanel {
     
     private PieceColor currentPlayer;
     
-    public Chessboard(ResourceLoader res, IChessGame g) {
+    private JLabel statusLabel;
+    
+    public Chessboard(ResourceLoader res, IChessGame g, JLabel statusLabel) {
         
         super(new GridLayout(size,size));
         
         this.res = res;
+        
+        this.statusLabel = statusLabel;
         
         currentGame = g;
         
@@ -93,7 +100,7 @@ public class Chessboard extends JPanel {
     public void reset(IChessGame newGame) {
         
         currentGame = newGame;
-        currentPlayer = PieceColor.WHITE;
+        currentPlayer = newGame.getCurrentPlayer();
         
         currentState = ChessboardState.FIELD_SELECTION;
         for (int i = 0; i < size; i++) {
@@ -113,6 +120,31 @@ public class Chessboard extends JPanel {
         refresh();
     }
     
+    public void setReversed(boolean reversed){
+        if (reversed) {
+            this.removeAll();
+            for (int i = size - 1; i >= 0; i--) {
+                for (int j = size - 1; j >= 0; j--) {
+                    this.add(fields[j][i]);
+                }        
+            }
+            
+            
+        }
+
+        else {
+            this.removeAll();
+            for (int i = 0; i < size; i++) {
+                for (int j = 0; j < size; j++) {
+                    this.add(fields[j][i]);
+                }        
+            }
+        }
+        refresh();
+        repaint();
+        validate();
+    }
+
     private void refresh() {
         for (int i = 0; i < size; i++) {
             for (int j = 0; j < size; j++) {
@@ -120,6 +152,7 @@ public class Chessboard extends JPanel {
                 fields[j][i].repaint();
             }
         }
+        refreshStatus();
     }
     
     public void disableBoard() {
@@ -204,6 +237,7 @@ public class Chessboard extends JPanel {
             }
 
         }
+        refreshStatus();
     }
     
     public void rightClicked(int x, int y) {
@@ -237,6 +271,32 @@ public class Chessboard extends JPanel {
             JOptionPane.showMessageDialog(this, "Stalemate", "Game has ended with a stalemate", JOptionPane.INFORMATION_MESSAGE);
             disableBoard();
         }
+        refreshStatus();
+    }
+    
+    private void refreshStatus() {
+        if (currentGame instanceof EmptyGame) {
+            statusLabel.setText("");
+            return;
+        }
+        if (currentGame.isCheckmate()) {
+            PieceColor winner = currentGame.getCurrentPlayer();
+            statusLabel.setText("<html><b>Checkmate</b><br>Player has won: " + winner + "<br>Start new game from the menu!</html>");
+        }
+        else if (currentGame.isStalemate()) {
+            statusLabel.setText("<html><b>Stalemate!</b><br>Start new game from the menu!</html>");
+        }
+        else {
+            String rest;
+            if (!currentGame.isWaiting()) {
+                rest = "It's your turn! Move some piece.";
+            }
+            else {
+                rest = "It's oponent's turn! Wait for his move.";
+            }
+            statusLabel.setText("<html><b>Playing game</b><br>Current player: " + currentGame.getCurrentPlayer() + "<br>" + rest + "</html>");
+        }
+        
     }
 
 }

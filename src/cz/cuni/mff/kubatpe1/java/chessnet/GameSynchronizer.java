@@ -44,10 +44,21 @@ public class GameSynchronizer implements IChessGame {
     @Override
     public void movePiece(int sourceX, int sourceY, int targetX, int targetY) throws InvalidMoveException {
         if (currentGame.getCurrentPlayer() != player) throw new InvalidMoveException();
+        /*
+        if (player == PieceColor.BLACK) {
+            tmpSourceX = currentGame.COLS - sourceX - 1;
+            tmpSourceY = currentGame.ROWS - sourceY - 1;
+            tmpTargetX = currentGame.COLS - targetX - 1;
+            tmpTargetY = currentGame.ROWS - targetY - 1;
+        }
+        else {
+        * */
         tmpSourceX = sourceX;
         tmpSourceY = sourceY;
         tmpTargetX = targetX;
         tmpTargetY = targetY;
+
+
         currentConnection.send("MV|" + sourceX + "|" + sourceY + "|" + targetX + "|" + targetY);
         waitingForResponse = true;
     } 
@@ -111,6 +122,11 @@ public class GameSynchronizer implements IChessGame {
 
     @Override
     public GameField getField(int x, int y) {
+        /*
+        if (player == PieceColor.BLACK) {
+            return currentGame.getField(currentGame.COLS - x - 1, currentGame.ROWS - y - 1);
+        }
+        * */
         return currentGame.getField(x, y);
     }
 
@@ -127,5 +143,9 @@ public class GameSynchronizer implements IChessGame {
     @Override
     public boolean isStalemate() {
         return currentGame.isStalemate();
+    }
+    
+    public void dropConnection() {
+        currentConnection.close();
     }
 }

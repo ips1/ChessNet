@@ -22,7 +22,7 @@ import javax.swing.JOptionPane;
  *
  * @author Ips
  */
-public class PieceNetworkSelector implements IPieceSelector {
+public class PieceMemorySelector implements IPieceSelector {
 
     private String lastSelected;
     

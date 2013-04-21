@@ -4,6 +4,7 @@
  */
 package cz.cuni.mff.kubatpe1.java.connection;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.*;
@@ -80,6 +81,7 @@ public abstract class Connection  {
         System.out.println(id + " - adding cmd to queue: " + cmd);
         pending.add(cmd);        
     }
+
     
     protected synchronized void transferPending() {
         //System.out.println(id + " - transfering queue");

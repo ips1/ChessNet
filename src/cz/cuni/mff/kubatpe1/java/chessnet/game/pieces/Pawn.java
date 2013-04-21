@@ -27,24 +27,35 @@ public class Pawn extends GamePiece {
     @Override
     public void move(GameField target, boolean silent) throws InvalidMoveException {
         GameField tmpField = currentField;
-        super.move(target, silent);
+        if (!silent) currentGame.log(currentGame.getMoveCode() + ": " + toString() + " from " + (char)(currentField.getX() + 65) + (currentField.getY() +1)  + " to " + (char)(target.getX() + 65) + (target.getY()+1));
+                
+        super.move(target, true);
+        
+        // En passant
         if (Math.abs(tmpField.getY() - currentField.getY()) == 2) {
             int middleFieldY = tmpField.getY() - ((tmpField.getY() - currentField.getY())/2);
             GameField middleField = currentGame.getField(tmpField.getX(), middleFieldY);
             middleField.setEnPassantTarget(this);
         }
         
-        if (tmpField.getY() < currentField.getY() && currentField.getY() == currentGame.ROWS - 1) {
+        // Reached other side of chessboard - switching pieces
+        boolean whiteSwitches = (tmpField.getY() > currentField.getY() && currentField.getY() == 0);
+        boolean blackSwitches = (tmpField.getY() < currentField.getY() && currentField.getY() == currentGame.ROWS - 1);
+        if (whiteSwitches || blackSwitches) {
             GamePiece substitute = currentGame.getSelecetor(owner).selectAndPlace(currentGame, currentField, owner);
             currentField.removePiece();
             currentField.placePiece(substitute);
-            currentGame.log(this + " switched for " + substitute);
+            if (!silent) {
+                currentGame.record(currentGame.getMoveNumber() + ": " + tmpField.getX() + " " + tmpField.getY() + " > " + currentField.getX() + " " + currentField.getY() + " " + substitute);
+                currentGame.log(this + " switched for " + substitute);
+            }
+
         }
-        else if (tmpField.getY() > currentField.getY() && currentField.getY() == 0) {
-            GamePiece substitute = currentGame.getSelecetor(owner).selectAndPlace(currentGame, currentField, owner);
-            currentField.removePiece();
-            currentField.placePiece(substitute);
-            currentGame.log(this + " switched for " + substitute);
+        else {
+            if (!silent) {
+                currentGame.record(currentGame.getMoveNumber() + ": " + tmpField.getX() + " " + tmpField.getY() + " > " + currentField.getX() + " " + currentField.getY());
+            }
+            
         }
 
         

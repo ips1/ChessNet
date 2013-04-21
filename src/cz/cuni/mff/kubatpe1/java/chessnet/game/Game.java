@@ -76,6 +76,12 @@ public class Game implements IChessGame {
             gameLogger = newLogger;
         }
     }
+    
+    public void setRecorder(IWriter newRecorder) {
+        if (newRecorder != null) {
+            gameRecorder = newRecorder;
+        }
+    }
        
     public void endRound() {
         
@@ -184,6 +190,7 @@ public class Game implements IChessGame {
     public void movePiece(int sourceX, int sourceY, int targetX, int targetY) throws InvalidMoveException {
         if (currentState != GameState.RUNNING) throw new InvalidMoveException();
         GamePiece sourcePiece = chessboard[sourceX][sourceY].getCurrentPiece();
+        if (sourcePiece == null) throw new InvalidMoveException();
         if (sourcePiece.getOwner() != currentPlayer) throw new InvalidMoveException();
         
         GameField targetField = chessboard[targetX][targetY];

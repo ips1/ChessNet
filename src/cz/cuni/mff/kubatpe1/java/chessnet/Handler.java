@@ -6,7 +6,7 @@ package cz.cuni.mff.kubatpe1.java.chessnet;
 
 import cz.cuni.mff.kubatpe1.java.chessnet.game.InvalidMoveException;
 import cz.cuni.mff.kubatpe1.java.chessnet.gui.MainWindow;
-import cz.cuni.mff.kubatpe1.java.chessnet.gui.PieceNetworkSelector;
+import cz.cuni.mff.kubatpe1.java.chessnet.gui.PieceMemorySelector;
 import cz.cuni.mff.kubatpe1.java.connection.MessageHandler;
 import java.io.IOException;
 import java.util.logging.Level;
@@ -51,7 +51,11 @@ public class Handler implements MessageHandler {
             });
         }
         else if (parts[0].equals("START") && parts.length == 1) {
-            window.invokeStart();
+            window.invokeStart(null);
+
+        }
+        else if (parts[0].equals("START") && parts.length == 2) {
+            window.invokeStart(parts[1]);
             /*
              javax.swing.SwingUtilities.invokeLater(new Runnable() {
 
@@ -81,7 +85,8 @@ public class Handler implements MessageHandler {
 
         }
         else if (parts[0].equals("QGAME") && parts.length == 1) {
-            window.forceQuitGame();
+            
+            window.otherSideQuit();
 
         }
         else if (parts[0].equals("PIECESEL") && parts.length == 2) {
@@ -90,6 +95,7 @@ public class Handler implements MessageHandler {
                 synchronizer.resumeMove();
             } catch (InvalidMoveException ex) {
                 System.err.println("Cannot invoke the move!");
+                reportFailure();
             }
 
         }
@@ -104,6 +110,7 @@ public class Handler implements MessageHandler {
             }
             catch (InvalidMoveException e) {
                 System.err.println("Cannot invoke the move!");
+                reportFailure();
             }
         }
         else if (parts[0].equals("MVCONFIRM") && parts.length == 1) {
@@ -113,6 +120,7 @@ public class Handler implements MessageHandler {
             }
             catch (InvalidMoveException e) {
                 System.err.println("Cannot confirm the move!");
+                reportFailure();
             }
         }
         else throw new IOException();

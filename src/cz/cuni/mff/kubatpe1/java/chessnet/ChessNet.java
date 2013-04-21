@@ -147,6 +147,8 @@ public class ChessNet {
         connection.start();
         
         */
+        
+        
         final MainWindow win = new MainWindow();
 
         javax.swing.SwingUtilities.invokeLater(new Runnable() {
